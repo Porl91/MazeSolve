@@ -161,14 +161,24 @@ class Player {
 		this.halfHeight = 0.45;
 		this.route = null;
 		this.targetPosition = null;
+		this.moveSpeed = 0.05;
 	}
 
 	setRoute(route) {
 		this.route = route.reverse();
+		this.targetPosition = null;
 	}
 
 	update(move) {
 		if (this.route) {
+			// Null the existing target if we've reached it.
+			if (this.targetPosition) {
+				let distanceSqr = Math.pow(this.targetPosition.x - this.x, 2) + Math.pow(this.targetPosition.y - this.y, 2);
+				if (distanceSqr < 0.01) {
+					this.targetPosition = null;
+				}
+			}
+			// If there's no target, then set one. If none can be found then just return.
 			if (!this.targetPosition) {
 				let targetCell = this.route.pop();
 				if (!targetCell) {
@@ -176,21 +186,19 @@ class Player {
 					return;
 				}
 				this.targetPosition = {
-					x: (targetCell.x + 0.499), 
-					y: (targetCell.y + 0.499)
+					x: (targetCell.x + 0.5), 
+					y: (targetCell.y + 0.5)
 				};
 			}
-			let distanceSqr = Math.pow(this.targetPosition.x - this.x, 2) + Math.pow(this.targetPosition.y - this.y, 2);
-			if (distanceSqr < 0.01) {
-				this.targetPosition = null;
-			} else {
+			// If there's a target, calculate the direction to it and step towards it.
+			if (this.targetPosition) {
 				let dir = {
 					x: (this.targetPosition.x - this.x),
 					y: (this.targetPosition.y - this.y)
 				};
 				let invLength = 1 / Math.sqrt(Math.pow(dir.x, 2) + Math.pow(dir.y, 2));
-				let xDelta = (dir.x * invLength) * 0.05;
-				let yDelta = (dir.y * invLength) * 0.05;
+				let xDelta = (dir.x * invLength) * this.moveSpeed;
+				let yDelta = (dir.y * invLength) * this.moveSpeed;
 				move(xDelta, yDelta);
 			}
 		}
