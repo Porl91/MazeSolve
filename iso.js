@@ -225,7 +225,7 @@ class Game {
 			y: parseFloat(localStorage.getItem('yCam')) || (-this.canvas.height / 2)
 		};
 
-		this.player = new Player();
+		this.objects = [];
 		
 		this.keyStates = {};
 		this.spritesheet = null;
@@ -260,10 +260,12 @@ class Game {
 
 	tick(delta) {
 		this.handleInput();
-		this.player.update((xDelta, yDelta) => {
-			this.movePlayer(xDelta, 0);
-			this.movePlayer(0, yDelta);
-		});
+		for (const obj of this.objects) {
+			obj.update((xDelta, yDelta) => {
+				this.moveObject(obj, xDelta, 0);
+				this.moveObject(obj, 0, yDelta);
+			});
+		}
 		this.drawGrid();
 		window.requestAnimationFrame((delta) => this.tick(delta));
 	}
@@ -275,8 +277,8 @@ class Game {
 				this.map[y][x] = 1;
 			}
 		}
-		this.map[0][0] = 2;
 		let visitedCells = {};
+		this.map[1][1] = 0;
 		var current = { x: 1, y: 1, xPartition: 0, yPartition: 0, parent: null };
 		while (current != null) {
 			if (!visitedCells[current.x + ':' + current.y]) {
@@ -327,13 +329,35 @@ class Game {
 				}
 			}
 		}
-		
-		// Clear out the starting zone.
-		this.map[1][1] = this.map[0][1] = this.map[1][0] = 0;
+	}
 
+	initEntities() {
+		let maxObjects = 100;// Math.floor(Math.random() * 5 + 5);
+		for (let i = 0; i < maxObjects; i++) {
+			let obj = new Player();
+			let cell = this.getRandomFreeMapCell();
+			if (cell == null) {
+				break;
+			}
+			obj.x = (cell.x + 0.5);
+			obj.y = (cell.y + 0.5);
+			this.objects.push(obj);
+			// this.initMapRoute(obj);
+		}
+		for (const obj of this.objects) {
+			let mapStart = {
+				x: Math.floor(obj.x), 
+				y: Math.floor(obj.y)
+			};
+			let route = new AStarPathFinder().getRoute(node => !this.areCoordinateInMapRange(node.x, node.y) || (this.map[node.y][node.x] == 1), mapStart, this.mapExit);
+			obj.setRoute(route.slice(1));
+		}
+	}
+
+	initMapRoute(start) {
 		let mapStart = {
-			x: Math.floor(this.player.x / this.halfTileWidth), 
-			y: Math.floor(this.player.y / this.tileHeight)
+			x: Math.floor(start.x), 
+			y: Math.floor(start.y)
 		};
 		let route = new AStarPathFinder().getRoute(node => !this.areCoordinateInMapRange(node.x, node.y) || (this.map[node.y][node.x] == 1), mapStart, this.mapExit);
 		
@@ -342,13 +366,19 @@ class Game {
 		}
 	}
 
-	initEntities() {
-		let mapStart = {
-			x: Math.floor(this.player.x / this.halfTileWidth), 
-			y: Math.floor(this.player.y / this.tileHeight)
-		};
-		let route = new AStarPathFinder().getRoute(node => !this.areCoordinateInMapRange(node.x, node.y) || (this.map[node.y][node.x] == 1), mapStart, this.mapExit);
-		this.player.setRoute(route.slice(1));
+	getRandomFreeMapCell() {
+		const mapWidth = (this.mapWidth - 1);
+		const mapHeight = (this.mapHeight - 1);
+		let randomMapIndices = [...new Array(mapWidth * mapHeight)].map((x, i) => i);
+		randomMapIndices.shuffle();
+		for (const index of randomMapIndices) {
+			const x = (index % mapWidth);
+			const y = Math.floor(index / mapWidth);
+			if (this.map[y][x] == 0) {
+				return { x: x, y: y };
+			}
+		}
+		return null;
 	}
 
 	updateSaveCamera() {
@@ -392,8 +422,10 @@ class Game {
 			xMove += this.moveSpeed;
 		}
 
-		this.movePlayer(xMove, 0);
-		this.movePlayer(0, yMove);
+		for (const obj of this.objects) {
+			this.moveObject(obj, xMove, 0);
+			this.moveObject(obj, 0, yMove);
+		}
 		
 		// TODO: Collisions with entities.
 		function doesIntersect(box0, box1) {
@@ -404,7 +436,7 @@ class Game {
 		}
 	}
 
-	movePlayer(xDelta, yDelta) {
+	moveObject(obj, xDelta, yDelta) {
 		if ((xDelta != 0.0) && (yDelta != 0.0)) {
 			throw 'Can\'t move the Player in both directions at once';
 		}
@@ -412,10 +444,10 @@ class Game {
 		// Margin applied to the movement delta to keep us out of collided cells during position correction for collision response.
 		const margin = 0.01;
 
-		let x0 = Math.floor((this.player.x + xDelta - this.player.halfWidth));
-		let x1 = Math.floor((this.player.x + xDelta + this.player.halfWidth));
-		let y0 = Math.floor((this.player.y + yDelta - this.player.halfHeight));
-		let y1 = Math.floor((this.player.y + yDelta + this.player.halfHeight));
+		let x0 = Math.floor((obj.x + xDelta - obj.halfWidth));
+		let x1 = Math.floor((obj.x + xDelta + obj.halfWidth));
+		let y0 = Math.floor((obj.y + yDelta - obj.halfHeight));
+		let y1 = Math.floor((obj.y + yDelta + obj.halfHeight));
 
 		var xCorrected = false;
 		var yCorrected = false;
@@ -427,9 +459,9 @@ class Game {
 							xCorrected = true;
 						}
 						if (xDelta > 0) {
-							xDelta = (x - this.player.halfWidth) - this.player.x - margin;
+							xDelta = (x - obj.halfWidth) - obj.x - margin;
 						} else if (xDelta < 0) {
-							xDelta = (x + this.player.halfWidth + 1) - this.player.x + margin;
+							xDelta = (x + obj.halfWidth + 1) - obj.x + margin;
 						}
 					}
 					if (!yCorrected) {
@@ -437,17 +469,17 @@ class Game {
 							yCorrected = true;
 						}
 						if (yDelta > 0) {
-							yDelta = (y - this.player.halfHeight) - this.player.y - margin;
+							yDelta = (y - obj.halfHeight) - obj.y - margin;
 						} else if (yDelta < 0) {
-							yDelta = (y + this.player.halfHeight + 1) - this.player.y + margin;
+							yDelta = (y + obj.halfHeight + 1) - obj.y + margin;
 						}
 					}
 				}
 			}
 		}
 	
-		this.player.x += xDelta;
-		this.player.y += yDelta;
+		obj.x += xDelta;
+		obj.y += yDelta;
 	}
 
 	drawGrid() {
@@ -479,16 +511,18 @@ class Game {
 			}
 		}
 	
-		let iso = this.getIsometricCoordsForScreenCoords(
-			this.player.x - this.player.halfWidth, 
-			this.player.y - this.player.halfHeight
-		);
-		sprites.push({
-			xScreen: iso.x * this.halfTileWidth,
-			yScreen: iso.y * this.tileHeight,
-			xSprite: 64,
-			ySprite: 0
-		});
+		for (const obj of this.objects) {
+			let iso = this.getIsometricCoordsForScreenCoords(
+				obj.x - obj.halfWidth, 
+				obj.y - obj.halfHeight
+			);
+			sprites.push({
+				xScreen: iso.x * this.halfTileWidth,
+				yScreen: iso.y * this.tileHeight,
+				xSprite: 64,
+				ySprite: 0
+			});
+		}
 	
 		sprites.sort((a, b) => a.yScreen - b.yScreen);
 	
