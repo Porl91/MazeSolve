@@ -205,7 +205,7 @@ class Player {
 	}
 }
 
-class Game {
+class Maze {
 	constructor() {
 		this.tileWidth = 64;
 		this.tileHeight = 32;
@@ -267,16 +267,19 @@ class Game {
 			});
 		}
 		this.drawGrid();
-		window.requestAnimationFrame((delta) => this.tick(delta));
+		window.requestAnimationFrame((delta) => this.tick(delta)); // Need to create an extra lambda here, due JS "this" scoping issue.	
 	}
 
 	initMap() {
+		// Default all grid cell to walls.
 		for (let y = 0; y < this.mapHeight; y++) {
 			this.map[y] = this.map[y] || [];
 			for (let x = 0; x < this.mapWidth; x++) {
 				this.map[y][x] = 1;
 			}
 		}
+
+		// Generate a basic maze for the objects to path-find through.
 		let visitedCells = {};
 		this.map[1][1] = 0;
 		var current = { x: 1, y: 1, xPartition: 0, yPartition: 0, parent: null };
@@ -307,9 +310,11 @@ class Game {
 			current = nextFrontier;
 		}
 
+		// Create blank rows at the furthest edges of the grid.
 		[...new Array(this.mapHeight).keys()].forEach(_ => this.map[_][this.mapWidth - 1] = 0);
 		[...new Array(this.mapWidth).keys()].forEach(_ => this.map[this.mapHeight - 1][_] = 0);
 		
+		// Find a random cell to exit through on one of the two opposite grid walls.
 		if (Math.random() > 0.5) {
 			while (true) {
 				var y = (Math.random() * (this.mapHeight - 2)) | 0;
@@ -332,7 +337,7 @@ class Game {
 	}
 
 	initEntities() {
-		let maxObjects = 100;// Math.floor(Math.random() * 5 + 5);
+		const maxObjects = 100;
 		for (let i = 0; i < maxObjects; i++) {
 			let obj = new Player();
 			let cell = this.getRandomFreeMapCell();
@@ -342,7 +347,6 @@ class Game {
 			obj.x = (cell.x + 0.5);
 			obj.y = (cell.y + 0.5);
 			this.objects.push(obj);
-			// this.initMapRoute(obj);
 		}
 		for (const obj of this.objects) {
 			let mapStart = {
@@ -351,18 +355,6 @@ class Game {
 			};
 			let route = new AStarPathFinder().getRoute(node => !this.areCoordinateInMapRange(node.x, node.y) || (this.map[node.y][node.x] == 1), mapStart, this.mapExit);
 			obj.setRoute(route.slice(1));
-		}
-	}
-
-	initMapRoute(start) {
-		let mapStart = {
-			x: Math.floor(start.x), 
-			y: Math.floor(start.y)
-		};
-		let route = new AStarPathFinder().getRoute(node => !this.areCoordinateInMapRange(node.x, node.y) || (this.map[node.y][node.x] == 1), mapStart, this.mapExit);
-		
-		for (const node of route.slice(1)) {
-			this.map[node.y][node.x] = 4;
 		}
 	}
 
@@ -444,6 +436,7 @@ class Game {
 		// Margin applied to the movement delta to keep us out of collided cells during position correction for collision response.
 		const margin = 0.01;
 
+		// The tile coordinates that each of the four object's corners are contained within.
 		let x0 = Math.floor((obj.x + xDelta - obj.halfWidth));
 		let x1 = Math.floor((obj.x + xDelta + obj.halfWidth));
 		let y0 = Math.floor((obj.y + yDelta - obj.halfHeight));
@@ -454,10 +447,12 @@ class Game {
 		for (let y = y0; y <= y1; y++) {
 			for (let x = x0; x <= x1; x++) {
 				if (!this.areCoordinateInMapRange(x, y) || (this.map[y][x] == 1)) {
-					if (!xCorrected) {
+					if (!xCorrected) { // Make sure we don't attempt to correct the corrected position. One correction should be sufficient.
 						if (xDelta != 0) {
 							xCorrected = true;
 						}
+						// If the object's moving right into an obstructive cell then move the object's right-most edge just before the tile.
+						// If the object is moving left into an obstructive cell then move it's left-most edge just after the tile.
 						if (xDelta > 0) {
 							xDelta = (x - obj.halfWidth) - obj.x - margin;
 						} else if (xDelta < 0) {
@@ -486,25 +481,36 @@ class Game {
 		this.context.fillStyle = '#000';
 		this.context.fillRect(0, 0, this.canvas.width, this.canvas.height);
 		
+		// Get the starting (x,y) point of the camera in map coordinates.
 		let xTileStart = Math.floor(this.camera.x / this.halfTileWidth);
 		let yTileStart = Math.floor(this.camera.y / this.tileHeight);
+
+		// Get the number of horizontal / vertical tiles required to cover the entire viewport.
 		let horizontalTiles = Math.floor(this.canvas.width / this.halfTileWidth);
 		let verticalTiles = Math.floor(this.canvas.height / this.tileHeight);
+
 		let sprites = [];
+
 		for (let y = yTileStart - this.extraGridPerimeterTiles; y < yTileStart + verticalTiles + this.extraGridPerimeterTiles; y++) {
 			for (let x = xTileStart - this.extraGridPerimeterTiles; x < xTileStart + horizontalTiles + this.extraGridPerimeterTiles; x++) {
+				// Convert the current orthogonal tile coordinates to screen coordinates.
 				let xScreen = x * this.halfTileWidth;
 				let yScreen = y * this.tileHeight + (x & 1) * this.halfTileHeight;
+
+				// Performs the following transformations to derive what tile this screen coordinate would lie within if projection isometrically.
+				// Screen Coordinates -> Isometric Screen Coordinates -> Isometric Map Coordinates
 				let mapCoords = this.getMapCoordsForScreenCoords(xScreen, yScreen);
 				if (this.areCoordinateInMapRange(mapCoords.x, mapCoords.y)) {
 					let tileId = this.map[mapCoords.y][mapCoords.x];
 					if (tileId > 0) {
-						var ySprite = (tileId - 1) * 64;
+						var ySprite = (tileId - 1) * 64; // Tile IDs and the vertical positioning of their associated sprite within the spritesheet are congruent.
 						sprites.push({
 							xScreen: xScreen,
 							yScreen: yScreen,
 							xSprite: 0,
-							ySprite: ySprite
+							ySprite: ySprite, 
+							width: 64, 
+							height: 64
 						});
 					}	
 				}
@@ -512,6 +518,7 @@ class Game {
 		}
 	
 		for (const obj of this.objects) {
+			// Offset objects by their own width / height. This is to position objects with their position at the center of their sprite image.
 			let iso = this.getIsometricCoordsForScreenCoords(
 				obj.x - obj.halfWidth, 
 				obj.y - obj.halfHeight
@@ -519,11 +526,15 @@ class Game {
 			sprites.push({
 				xScreen: iso.x * this.halfTileWidth,
 				yScreen: iso.y * this.tileHeight,
-				xSprite: 64,
-				ySprite: 0
+				// A few hard-coded values derived from the spritesheet.
+				xSprite: 65,
+				ySprite: 0, 
+				width: 62, 
+				height: 64
 			});
 		}
 	
+		// Sort sprites from lowest y coordinate to highest. This is to ensure that sprites further in the foreground are drawn first.
 		sprites.sort((a, b) => a.yScreen - b.yScreen);
 	
 		for (const sprite of sprites) {
@@ -531,7 +542,9 @@ class Game {
 				sprite.xScreen - this.camera.x, 
 				sprite.yScreen - this.camera.y, 
 				sprite.xSprite, 
-				sprite.ySprite
+				sprite.ySprite, 
+				sprite.width, 
+				sprite.height
 			);
 		}
 	}
@@ -554,8 +567,11 @@ class Game {
 		this.context.restore();
 	}
 	
-	drawImage(xScreen, yScreen, xSprite, ySprite) {
-		this.context.drawImage(this.spritesheet, xSprite, ySprite, 64, 64, xScreen, yScreen, 64, 64);
+	drawImage(xScreen, yScreen, xSprite, ySprite, width, height) {
+		this.context.drawImage(this.spritesheet, 
+			xSprite, ySprite, width, height, 
+			xScreen, yScreen, width, height
+		);
 	}
 	
 	getIsometricCoordsForScreenCoords(xCart, yCart) {
@@ -584,4 +600,4 @@ class Game {
 	}
 }
 
-new Game().start();
+new Maze().start();
